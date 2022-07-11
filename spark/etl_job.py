@@ -3,10 +3,12 @@ import sys
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import flatten, col, udf, to_date, coalesce, to_json, collect_list, create_map, lit, map_entries, array_distinct
 
+from spark.dependencies.spark import start_spark
 
-def load_from_csv_df(spark_: SparkSession, arg):
+
+def load_from_csv_df(spark_: SparkSession, arg, delimiter=','):
     return spark_.read \
-        .option("delimiter", ",") \
+        .option("delimiter", delimiter) \
         .option("header", True) \
         .csv(arg)
 
@@ -21,11 +23,13 @@ def main():
     :return: None
     """
 
-    # start Spark application and get Spark session, logger and config
-    spark = SparkSession \
-        .builder \
-        .appName("Drugs") \
-        .getOrCreate()
+    # start Spark application and get Spark session
+    spark, log, config = start_spark(
+        app_name='Drugs',
+        files=['spark/configs/etl_config.json'])
+
+    # log that main ETL job is starting
+    log.warn('job is up-and-running')
 
     """ Load csv file for PubMed """
     pubmed_df = load_from_csv_df(spark, sys.argv[1])
@@ -94,7 +98,7 @@ def main():
 
     # ========
 
-    clinical_trials_drugs_df = drugs2_df.join(clinical_trials2_df, clinical_trials2_df.Title.contains(drugs2_df.Name), "inner")
+    clinical_trials_drugs_df = drugs2_df.join(clinical_trials2_df, clinical_trials2_df.Title.contains(drugs2_df.Name))  # default inner
     clinical_trials_drugs_df.persist()
     # clinical_trials_drugs_df.printSchema()
     # clinical_trials_drugs_df.show(truncate=False)
@@ -168,12 +172,14 @@ def main():
     final_df.printSchema()
     final_df.show(truncate=False)
 
-    # merged_agg_df.coalesce(1) \
     final_df.coalesce(1) \
         .write \
         .partitionBy("Id", "Name") \
         .mode("overwrite") \
         .json(sys.argv[4])  # output dir
+
+    # log the success and terminate Spark application
+    log.warn('job is finished')
 
     spark.stop()
     return None
